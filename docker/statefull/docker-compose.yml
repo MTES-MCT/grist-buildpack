@@ -1,0 +1,94 @@
+# https://support.getgrist.com/install/example-docker-nginx/
+
+version: "3.9"
+
+services:
+  grist:
+    build:
+      context: ../../.
+      dockerfile: Dockerfile.statefull
+    container_name: grist
+    env_file: .env
+    volumes:
+      - grist_data:/tmp/persist
+      - cache:/cache
+      - build:/build
+      - env:/env
+      - app:/app
+    ports:
+      - "${PORT}:${PORT}"
+    depends_on:
+      database:
+        condition: service_healthy
+      oidc:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+  database:
+    image: postgres:latest
+    container_name: grist_db
+    env_file: .env
+    volumes:
+      - grist_db:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready", "-U", "grist", "-d", "grist"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+  redis:
+    image: "redis"
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --save 60 1 --loglevel warning
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 1s
+      timeout: 3s
+      retries: 5
+  minio:
+    image: "minio/minio"
+    container_name: minio
+    env_file: .env
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  oidc:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: oidc
+    env_file: .env
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./oidc/import:/opt/keycloak/data/import
+    command: ["start-dev", "--import-realm"]
+    healthcheck:
+      test: ['CMD-SHELL', '[ -f /tmp/HealthCheck.java ] || echo "public class HealthCheck { public static void main(String[] args) throws java.lang.Throwable { System.exit(java.net.HttpURLConnection.HTTP_OK == ((java.net.HttpURLConnection)new java.net.URL(args[0]).openConnection()).getResponseCode() ? 0 : 1); } }" > /tmp/HealthCheck.java && java /tmp/HealthCheck.java http://localhost:8080/health/live']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  grist_db:
+  grist_data:
+  minio_data:
+  redis_data:
+  cache:
+  build:
+  env:
+  app:

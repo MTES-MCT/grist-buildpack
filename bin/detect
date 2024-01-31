@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+
+# Always accept the Grist buildpack
+echo "Grist"
+exit 0

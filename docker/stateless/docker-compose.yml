@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  grist:
+    build:
+      context: ../../.
+      dockerfile: Dockerfile.stateless
+    container_name: grist
+    env_file: .env
+    volumes:
+      - grist_data:/tmp/persist
+      - cache:/cache
+      - build:/build
+      - env:/env
+      - app:/app
+    ports:
+      - "${PORT}:${PORT}"
+    networks:
+      - grist 
+
+volumes:
+  grist_data:
+  cache:
+  build:
+  env:
+  app:
+networks:
+  grist:

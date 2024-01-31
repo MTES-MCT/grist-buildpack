@@ -1,0 +1,18 @@
+FROM scalingo/scalingo-22
+ADD bin/. buildpack/bin/
+ADD lib/. buildpack/lib/
+ADD opt/. buildpack/opt/
+ADD docker/stateless/.env /env/.env
+RUN buildpack/lib/env.sh /env/.env /env
+RUN buildpack/bin/compile /build /cache /env
+RUN rm -rf /app/nodejs
+RUN cp -rf /build/nodejs /app/nodejs
+RUN rm -rf /app/yarn
+RUN cp -rf /build/yarn /app/yarn
+RUN rm -rf /app/grist
+RUN cp -rf /build/grist /app/grist
+WORKDIR /app/grist
+ENV PORT=8484
+EXPOSE $PORT
+
+ENTRYPOINT [ "sh", "/app/grist/boot.sh" ]

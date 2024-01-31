@@ -1,0 +1,77 @@
+#!/bin/bash
+# usage: bin/compile <build-dir> <cache-dir> <env-dir>
+
+set -eo pipefail
+
+BUILD_DIR=${1:-}
+CACHE_DIR=${2:-}
+ENV_DIR=${3:-}
+basedir="$( cd -P "$( dirname "$0" )" && pwd )"
+BUILDPACK_DIR="$(readlink -f ${basedir}/..)"
+source ${BUILDPACK_DIR}/lib/common.sh
+
+if [ -n "$BUILDPACK_DEBUG" ]; then
+  set -x
+fi
+
+GRIST_PATH="$BUILD_DIR/grist"
+NODE_PATH="$BUILD_DIR/nodejs"
+YARN_PATH="$BUILD_DIR/yarn"
+CACHE_NODE="$CACHE_DIR/dist/grist/node_modules"
+TMP_PATH="$BUILD_DIR/tmp"
+mkdir -p "${CACHE_DIR}/src" "${CACHE_DIR}/dist" "${CACHE_DIR}/dist/grist" "${CACHE_NODE}" "${TMP_PATH}" "${TMP_PATH}/grist" "${TMP_PATH}/nodejs" "${TMP_PATH}/yarn"
+export PATH="$BUILD_DIR/bin:$PATH"
+
+STACK="${STACK:-scalingo-22}"
+
+start "Install Grist"
+
+if [[ -f "$ENV_DIR/GRIST_VERSION" ]]; then
+  GRIST_VERSION=$(cat "$ENV_DIR/GRIST_VERSION")
+else
+  GRIST_VERSION="latest"
+fi
+
+if [[ $GRIST_VERSION == "latest" ]]; then
+  GRIST_VERSION=$(fetch_github_latest_release "${TMP_PATH}" "gristlabs/grist-core")
+fi
+info "Using grist version: ${GRIST_VERSION}" | indent
+
+if [ -z "$(ls ${CACHE_NODE})" ]; then
+  if [[ -n "${GRIST_VERSION}" ]]; then
+    fetch_grist_source "${GRIST_VERSION}" "${TMP_PATH}/grist"
+    cp -r "${TMP_PATH}/grist" "${GRIST_PATH}"
+    install_nodejs "${TMP_PATH}/nodejs" "${GRIST_PATH}"
+    cp -r "${TMP_PATH}/nodejs" "${NODE_PATH}"
+    install_yarn "${TMP_PATH}/yarn"
+    cp -r "${TMP_PATH}/yarn" "${YARN_PATH}"
+    export PATH="$NODE_PATH/bin:$YARN_PATH/bin:$PATH"
+    cd "${GRIST_PATH}"
+    if [ -z "$(ls ${CACHE_NODE})" ] && ! [ -f "${GRIST_PATH}/requirements.txt" ] && ! [ -f "${GRIST_PATH}/requirements3.txt" ]; then
+      apt update && apt install -y --no-install-recommends python2 python2-dev python3-pip python3-venv
+      # https://itslinuxfoss.com/how-to-install-python-pip-on-ubuntu-22-04/
+      curl https://bootstrap.pypa.io/pip/2.7/get-pip.py --output get-pip.py
+      python2 get-pip.py
+      cp sandbox/requirements.txt requirements.txt
+      cp sandbox/requirements3.txt requirements3.txt
+      pip2 install wheel
+      pip2 install -r requirements.txt
+      pip3 install -r requirements3.txt
+      yarn global add @mapbox/node-pre-gyp node-gyp node-gyp-build --pure-lockfile --modules-folder "${CACHE_NODE}"
+      yarn install --pure-lockfile --modules-folder "${CACHE_NODE}"
+    fi
+    cp -r "${CACHE_NODE}" "${GRIST_PATH}"
+  fi
+  yarn run build:prod
+  yarn run install:python
+  cp ${BUILDPACK_DIR}/opt/boot.sh ${GRIST_PATH}/
+  chmod +x "${GRIST_PATH}/boot.sh"
+else
+  warn "Grist already installed"
+fi
+finished
+
+step "Cleaning up tmp files"
+rm -rf "${TMP_PATH}"
+
+finished
